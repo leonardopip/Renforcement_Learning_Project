@@ -1,4 +1,2 @@
-
-print("Siamo nella merda forte")
 print("Hello World")
-print("suca")
+## suca leonardo tre ore tret sei l'inefficenza suca due 
