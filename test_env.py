@@ -13,5 +13,7 @@ for i in range(1000):
 
     if terminated or truncated:
         obs, info = env.reset()
+    
+
 
 env.close()

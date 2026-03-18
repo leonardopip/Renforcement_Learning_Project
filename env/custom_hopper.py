@@ -119,6 +119,8 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
 
         self.original_masses = np.copy(self.model.body_mass[1:])    # Default link masses
 
+        self.body_names = [self.model.body(i).name for i in range(1, len(self.model.body_mass))]
+
         
         if domain == 'source':  # Source environment has an imprecise torso mass (1kg shift)
             self.model.body_mass[1] -= 1.0
@@ -217,6 +219,10 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
         if self.domain == 'source':
             self.set_random_parameters() # TODO: May be useful insert a parameter to control if to sample new mass params
 
+            #print("Nuove masse:", self.model.body_mass[1:]) 
+
+
+
         observation = self._get_obs()
         return observation
 
@@ -239,8 +245,10 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
         """
 
         masses = np.array(self.model.body_mass[1:], dtype=np.float64)
-        sampled_others = self.np_random.uniform(0.8 * self.original_masses[1:], 1.2 * self.original_masses[1:])
-        masses[1:] = sampled_others
+        i = 1
+        #sampled_others = self.np_random.uniform(0.8 * self.original_masses[1:], 1.2 * self.original_masses[1:])
+       # masses[1:] = sampled_others
+        masses[i+1] = self.np_random.uniform(0.8 * self.original_masses[i+1],1.2 * self.original_masses[i+1])
 
         return masses
 

@@ -67,7 +67,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--test", "-t", type=str, default=None, help="Model to be tested")
     parser.add_argument("--env", type=str, default="CustomHopper-source-v0", help="Environment to use")
-    parser.add_argument("--total_timesteps", type=int, default=200000, help="The total number of samples to train on")
+    parser.add_argument("--total_timesteps", type=int, default=500000, help="The total number of samples to train on")
     parser.add_argument('--seed', default=0, type=int, help='Random seed')
     parser.add_argument('--algo', default='ppo', type=str, help='RL Algo [ppo, sac]')
     parser.add_argument('--lr', default=0.0003, type=float, help='Learning rate')
@@ -84,7 +84,17 @@ def main():
 
     print('State space:', env.observation_space)  # state-space
     print('Action space:', env.action_space)  # action-space
-    print('Dynamics parameters:', env.unwrapped.get_parameters())  # masses of each link of the Hopper
+   # print('Dynamics parameters:', env.unwrapped.get_parameters())  # masses of each link of the Hopper
+   # print('nomi:', env.unwrapped.body_names())
+
+    masses = env.unwrapped.get_parameters()
+    names = env.unwrapped.body_names
+
+    print("\nDynamics parameters (nome → massa):")
+    for name, mass in zip(names, masses):
+        print(f"{name}: {mass}")
+
+    
 
     """
         TODO:
@@ -117,14 +127,58 @@ def main():
         
         except KeyboardInterrupt:
             print("Interrupted!")
+    #else:
+        #print("Testing...")
+        #model = load_model(args, env)
+        
+        #mean_reward, std_reward = evaluate_policy(model,env,n_eval_episodes=args.test_episodes,deterministic=True)
+
+        #print(f"Test reward (avg +/- std): ({mean_reward} +/- {std_reward}) - Num episodes: {args.test_episodes}")
+
     else:
         print("Testing...")
         model = load_model(args, env)
-        
-        mean_reward, std_reward = evaluate_policy(model,env,n_eval_episodes=args.test_episodes,deterministic=True)
 
-        print(f"Test reward (avg +/- std): ({mean_reward} +/- {std_reward}) - Num episodes: {args.test_episodes}")
-        
+        episode_rewards = []
+        episode_lengths = []
+        all_actions = []
+
+        for ep in range(args.test_episodes):
+            obs, _ = env.reset()
+            done = False
+            truncated = False
+            ep_reward = 0.0
+            ep_length = 0
+
+            while not (done or truncated):
+                action, _ = model.predict(obs, deterministic=True)
+                all_actions.append(action)
+
+                obs, reward, done, truncated, info = env.step(action)
+                ep_reward += reward
+                ep_length += 1
+
+            episode_rewards.append(ep_reward)
+            episode_lengths.append(ep_length)
+
+            print(f"Episode {ep+1:02d} | Reward: {ep_reward:.2f} | Length: {ep_length}")
+
+        all_actions = np.array(all_actions)
+
+        print("\n--- Test summary ---")
+        print(f"Mean reward        : {np.mean(episode_rewards):.2f}")
+        print(f"Std reward         : {np.std(episode_rewards):.2f}")
+        print(f"Min reward         : {np.min(episode_rewards):.2f}")
+        print(f"Max reward         : {np.max(episode_rewards):.2f}")
+        print(f"Mean episode length: {np.mean(episode_lengths):.2f}")
+        print(f"Min episode length : {np.min(episode_lengths)}")
+        print(f"Max episode length : {np.max(episode_lengths)}")
+
+        print("\n--- Action statistics ---")
+        print(f"Action mean: {all_actions.mean(axis=0)}")
+        print(f"Action std : {all_actions.std(axis=0)}")
+        print(f"Action min : {all_actions.min(axis=0)}")
+        print(f"Action max : {all_actions.max(axis=0)}") 
 
 
     env.close()    
