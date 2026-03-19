@@ -168,7 +168,7 @@ class PusherEnv(MujocoEnv, utils.EzPickle):
 
     def __init__(
         self,
-        xml_file: str = "pusher-v2 ostacoli.xml",
+        xml_file: str = "pusher-v2_attrito.xml",
         frame_skip: int = 5,
         default_camera_config: dict[str, float | int] = DEFAULT_CAMERA_CONFIG,
         reward_near_weight: float = 0.5,
@@ -238,7 +238,7 @@ class PusherEnv(MujocoEnv, utils.EzPickle):
         reward_dist = -np.linalg.norm(vec_2) * self._reward_dist_weight
         reward_ctrl = -np.square(action).sum() * self._reward_control_weight
 
-        reward = 1.1*reward_dist + 0.9*reward_ctrl + reward_near
+        reward = reward_dist + reward_ctrl + reward_near
 
         reward_info = {
             "reward_dist": reward_dist,
@@ -297,3 +297,18 @@ gym.register(
     max_episode_steps=1000,
     kwargs={"xml_file": "pusher-v2 ostacoli.xml"}
 )
+
+gym.register(
+    id="CustomPusher-vGravity",
+    entry_point=f"{__name__}:PusherEnv",
+    max_episode_steps=1000,
+    kwargs={"xml_file": "pusher-v2_gravita.xml"}
+)
+
+gym.register(
+    id="CustomPusher-vAttrito",
+    entry_point=f"{__name__}:PusherEnv",
+    max_episode_steps=1000,
+    kwargs={"xml_file": "pusher-v2_attrito.xml"}
+)
+
