@@ -1,75 +1,69 @@
-import gymnasium as gym
-from stable_baselines3 import PPO
 import numpy as np
-import time
+import argparse
+import matplotlib.pyplot as plt
+
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
+
+import gymnasium as gym
 from pusher import PusherEnv
 
-import matplotlib.pyplot as plt
+from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.evaluation import evaluate_policy
-# 1. Carica l'ambiente
-# Nota: assicurati che il nome dell'id sia corretto (es. "Pusher-v4")
-env = gym.make("CustomPusher-vAttrito", render_mode="human")
 
-# 2. Carica il modello salvato
-model_path = "ppo_pusher_Attrito" # Non serve l'estensione .zip
-model = PPO.load(model_path, env=env)
+print("Testing...")
+env = gym.make('CustomPusher-vAttrito')
 
-print(f"Modello {model_path} caricato. Inizio simulazione...")
+# --- TEST POLICY 1 (PPO) ---
+model = PPO.load("ppo_pusher_Attrito")
+episode_rewards_1 = []
 
-# 3. Loop di valutazione e simulazione visiva
-episodes = 10
-for ep in range(episodes):
-    obs, info = env.reset()
+for ep in range(50):
+    obs, _ = env.reset()
     done = False
     truncated = False
-    score = 0
-    
+    ep_reward = 0.0
     while not (done or truncated):
-        # Azione deterministica per il test
-        action, _states = model.predict(obs, deterministic=True)
-        
-        # Esegui l'azione
+        action, _ = model.predict(obs, deterministic=True)
         obs, reward, done, truncated, info = env.step(action)
-        score += reward
-        
-        # Il rendering 'human' non richiede env.render() esplicito in Gymnasium 
-        # ma se non vedi nulla, decommenta la riga sotto:
-        # env.render()
-        
-        # Opzionale: aggiungi un piccolissimo delay per goderti il movimento
-        time.sleep(0.01) 
+        ep_reward += reward
+    episode_rewards_1.append(ep_reward)
 
-    print(f"Episodio: {ep + 1} | Punteggio totale: {score:.2f}")
+# --- TEST POLICY 2 (Esempio: SAC) ---
+# Carichiamo la seconda policy (assicurati che il file esista)
+model_2 = PPO.load("ppo_pusher_senza_ostacoli") 
+episode_rewards_2 = []
+
+for ep in range(50):
+    obs, _ = env.reset()
+    done = False
+    truncated = False
+    ep_reward = 0.0
+    while not (done or truncated):
+        action, _ = model_2.predict(obs, deterministic=True)
+        obs, reward, done, truncated, info = env.step(action)
+        ep_reward += reward
+    episode_rewards_2.append(ep_reward)
 
 env.close()
 
-# 1. Esegui la valutazione raccogliendo i dati di ogni singolo episodio
-# Supponiamo di valutare su 50 episodi per avere dati statisticamente significativi
-rewards, lengths = evaluate_policy(
-    model, 
-    env, 
-    n_eval_episodes=50, 
-    return_episode_rewards=True
-)
+# --- GRAFICO DI CONFRONTO ---
+data_to_plot = [episode_rewards_1, episode_rewards_2]
+labels = ['PPO (Source)', 'PPO (target)']
 
-# 2. Creazione dei grafici (Istogramma e Boxplot)
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+plt.figure(figsize=(10, 6))
 
-# Istogramma: mostra la frequenza dei punteggi ottenuti
-ax1.hist(rewards, bins=10, color='skyblue', edgecolor='black', alpha=0.7)
-ax1.axvline(np.mean(rewards), color='red', linestyle='dashed', linewidth=2, label=f'Media: {np.mean(rewards):.1f}')
-ax1.set_title('Distribuzione dei Premi (Rewards)')
-ax1.set_xlabel('Reward Totale per Episodio')
-ax1.set_ylabel('Frequenza')
-ax1.legend()
+# Boxplot per vedere distribuzione, media e varianza
+plt.boxplot(data_to_plot, labels=labels, patch_artist=True, 
+            boxprops=dict(facecolor='lightblue', color='blue'),
+            medianprops=dict(color='red'))
 
-# Boxplot: evidenzia la varianza, i quartili e gli eventuali outlier (casi rari)
-ax2.boxplot(rewards, vert=True, patch_artist=True, 
-            boxprops=dict(facecolor='lightgreen'),
-            medianprops=dict(color='black'))
-ax2.set_title('Varianza e Outlier')
-ax2.set_ylabel('Reward Totale')
-ax2.set_xticklabels(['Agente'])
+plt.ylabel('Reward')
+plt.title('Confronto Performance: PPO source vs PPO target')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
 
-plt.tight_layout()
 plt.show()
+
+# Stampa delle medie finali
+print(f"\nMedia Reward PPO: {np.mean(episode_rewards_1):.2f}")
+print(f"Media Reward PPO parallelo: {np.mean(episode_rewards_2):.2f}")
