@@ -245,7 +245,7 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
         """
 
         masses = np.array(self.model.body_mass[1:], dtype=np.float64)
-        i = 1
+        i = 2
         #sampled_others = self.np_random.uniform(0.8 * self.original_masses[1:], 1.2 * self.original_masses[1:])
        # masses[1:] = sampled_others
         masses[i+1] = self.np_random.uniform(0.8 * self.original_masses[i+1],1.2 * self.original_masses[i+1])
