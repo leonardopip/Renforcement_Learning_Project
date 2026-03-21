@@ -20,7 +20,8 @@ DEFAULT_CAMERA_CONFIG = {
     "elevation": -20.0,
 }
 
-class CustomHopper(MujocoEnv, utils.EzPickle):
+# Variano Uniforme delle masse dei joint
+class Hopper_UniformDistribution(MujocoEnv, utils.EzPickle):
     metadata = {
         "render_modes": [
             "human",
@@ -46,6 +47,7 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
         reset_noise_scale: float = 5e-3,
         exclude_current_positions_from_observation: bool = True,
         domain: Optional[str] = None,
+        distribuzione: float = 0.2,
         **kwargs,
     ):
         utils.EzPickle.__init__(
@@ -63,10 +65,12 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
             reset_noise_scale,
             exclude_current_positions_from_observation,
             domain,
+            distribuzione,
             **kwargs,
         ) 
         
         self.domain = domain
+        self.distribuzione = distribuzione
         self._forward_reward_weight = forward_reward_weight
         self._ctrl_cost_weight = ctrl_cost_weight
         self._healthy_reward = healthy_reward
@@ -245,11 +249,9 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
         """
 
         masses = np.array(self.model.body_mass[1:], dtype=np.float64)
-        i = 2
-        #sampled_others = self.np_random.uniform(0.8 * self.original_masses[1:], 1.2 * self.original_masses[1:])
-       # masses[1:] = sampled_others
-        masses[i+1] = self.np_random.uniform(0.8 * self.original_masses[i+1],1.2 * self.original_masses[i+1])
-
+        sampled_others = self.np_random.uniform(1-self.distribuzione, 1+self.distribuzione )* self.original_masses[1:]
+        masses[1:] = sampled_others
+        
         return masses
 
     def get_parameters(self):
@@ -262,27 +264,102 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
         self.model.body_mass[1:] = task
 
 
+# distribuzione gaussiana tronccta con cui variano le masse dei joint del hopper
+class Hopper_GaussianTroncata(Hopper_UniformDistribution):
+    """Eredita tutto dalla Uniforme, cambia solo il campionamento"""
+    def sample_parameters(self):
+        mean = self.original_masses
+        std = 0.1 * mean
+        # Usiamo self.distribuzione per definire i bound della troncata
+        a = ((1.0 - self.distribuzione) * mean - mean) / std
+        b = ((1.0 + self.distribuzione) * mean - mean) / std
+        
+        sampled = truncnorm.rvs(a, b, loc=mean, scale=std, random_state=self.np_random)
+        return sampled
+
 """
     Registered environments
 """
 gym.register(
         id="CustomHopper-v0",
-        entry_point="%s:CustomHopper" % __name__,
+        entry_point="%s:Hopper_UniformDistribution" % __name__,
         max_episode_steps=500,
 )
 
 gym.register(
         id="CustomHopper-source-v0",
-        entry_point="%s:CustomHopper" % __name__,
+        entry_point="%s:Hopper_UniformDistribution" % __name__,
         max_episode_steps=500,
         kwargs={"domain": "source"}
 )
 
 gym.register(
         id="CustomHopper-target-v0",
-        entry_point="%s:CustomHopper" % __name__,
+        entry_point="%s:Hopper_UniformDistribution" % __name__,
         max_episode_steps=500,
         kwargs={"domain": "target"}
 )
 
+# Caso Base: Randomizzazione leggera (10%)
+gym.register(
+    id="Hopper-Uniform-10-v0",
+    entry_point="%s:Hopper_UniformDistribution" % __name__,
+    max_episode_steps=500,
+    kwargs={"domain": "source", "distribuzione": 0.1}
+)
 
+# Caso Standard: Randomizzazione media (20%) - Il tuo default
+gym.register(
+    id="Hopper-Uniform-20-v0",
+    entry_point="%s:Hopper_UniformDistribution" % __name__,
+    max_episode_steps=500,
+    kwargs={"domain": "source", "distribuzione": 0.2}
+)
+
+# Caso Stress Test: Randomizzazione forte (50%)
+# Qui la massa può variare da 0.5x a 1.5x rispetto all'originale
+gym.register(
+    id="Hopper-Uniform-50-v0",
+    entry_point="%s:Hopper_UniformDistribution" % __name__,
+    max_episode_steps=500,
+    kwargs={"domain": "source", "distribuzione": 0.5}
+)
+
+# Caso Extreme: Randomizzazione estrema (80%)
+# Molto utile per testare la Generalizzazione Zero-Shot
+gym.register(
+    id="Hopper-Uniform-80-v0",
+    entry_point="%s:Hopper_UniformDistribution" % __name__,
+    max_episode_steps=500,
+    kwargs={"domain": "source", "distribuzione": 0.8}
+)
+
+gym.register(
+    id="Hopper-Gauss-10-v0",
+    entry_point="%s:Hopper_GaussianTroncata" % __name__,
+    max_episode_steps=500,
+    kwargs={"domain": "source", "distribuzione": 0.1}
+)
+
+gym.register(
+    id="Hopper-Gauss-20-v0",
+    entry_point="%s:Hopper_GaussianTroncata" % __name__,
+    max_episode_steps=500,
+    kwargs={"domain": "source", "distribuzione": 0.2}
+)
+
+
+gym.register(
+    id="Hopper-Gauss-50-v0",
+    entry_point="%s:Hopper_GaussianTroncata" % __name__,
+    max_episode_steps=500,
+    kwargs={"domain": "source", "distribuzione": 0.5}
+)
+
+
+gym.register(
+    id="Hopper-Gauss-80-v0",
+    entry_point="%s:Hopper_GaussianTroncata" % __name__,
+    max_episode_steps=500,
+    kwargs={"domain": "source", "distribuzione": 0.8}
+)
