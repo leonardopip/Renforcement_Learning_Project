@@ -12,10 +12,10 @@ from stable_baselines3 import PPO, SAC
 from stable_baselines3.common.evaluation import evaluate_policy
 
 print("Testing...")
-env = gym.make('CustomPusher-vAttrito')
+env = gym.make('CustomPusher-vAttrito',render_mode="human")
 
 # --- TEST POLICY 1 (PPO) ---
-model = PPO.load("ppo_pusher_Attrito")
+model = PPO.load("ppo_pusher_Attrito_ent_std")
 episode_rewards_1 = []
 
 for ep in range(50):

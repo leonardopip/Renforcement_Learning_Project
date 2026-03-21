@@ -37,9 +37,9 @@ vec_env = make_vec_env(
 specifiche = gym.spec('CustomPusher-vAttrito')
 print(specifiche)
 
-model = PPO("MlpPolicy", vec_env, verbose=1, device="cpu",tensorboard_log="./tensorboard_logs/")
-model.learn(total_timesteps=3000000)
-model.save("ppo_pusher_Attrito")
+model = PPO("MlpPolicy", vec_env, verbose=1, device="cpu",tensorboard_log="./tensorboard_logs/",ent_coef=0.001)
+model.learn(total_timesteps=3000000, tb_log_name="PPO_MultiVec_ent_0-001_attrito_v1_1")
+model.save("ppo_pusher_Attrito_ent_0-001")
 
 show_training_results(log_dir)
 
