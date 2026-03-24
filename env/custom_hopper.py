@@ -21,7 +21,7 @@ DEFAULT_CAMERA_CONFIG = {
 }
 
 # Variano Uniforme delle masse dei joint
-class Hopper_UniformDistribution(MujocoEnv, utils.EzPickle):
+class Hopper_Mass_UniformDistribution(MujocoEnv, utils.EzPickle):
     metadata = {
         "render_modes": [
             "human",
@@ -265,7 +265,7 @@ class Hopper_UniformDistribution(MujocoEnv, utils.EzPickle):
 
 
 # distribuzione gaussiana tronccta con cui variano le masse dei joint del hopper
-class Hopper_GaussianTroncata(Hopper_UniformDistribution):
+class Hopper_Mass_GaussianTroncata(Hopper_Mass_UniformDistribution):
     """Eredita tutto dalla Uniforme, cambia solo il campionamento"""
     def sample_parameters(self):
         mean = self.original_masses
@@ -276,90 +276,236 @@ class Hopper_GaussianTroncata(Hopper_UniformDistribution):
         
         sampled = truncnorm.rvs(a, b, loc=mean, scale=std, random_state=self.np_random)
         return sampled
+class Hopper_OnlyFriction_uniform(Hopper_Mass_UniformDistribution):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Assicuriamoci che le masse siano quelle originali
+        self.model.body_mass[1:] = self.original_masses
+        self.original_frictions = np.copy(self.model.geom_friction)
+
+    def sample_parameters(self):
+        # Genera solo i nuovi attriti
+        low, high = 1.0 - self.distribuzione, 1.0 + self.distribuzione
+        return self.original_frictions * self.np_random.uniform(low, high, size=self.original_frictions.shape)
+
+    def set_parameters(self, frictions):
+        # Modifica SOLO gli attriti
+        self.model.geom_friction[:] = frictions
+        # Opzionale: forziamo le masse a restare originali ad ogni reset
+        self.model.body_mass[1:] = self.original_masses
+
+    def get_parameters(self):
+        return np.array(self.model.geom_friction)
+    
+class Hopper_MassAndFriction_Uniform(Hopper_Mass_UniformDistribution):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.original_frictions = np.copy(self.model.geom_friction)
+
+    def sample_parameters(self):
+        low, high = 1.0 - self.distribuzione, 1.0 + self.distribuzione
+        
+        # Campionamento Masse
+        new_masses = self.original_masses * self.np_random.uniform(low, high, size=self.original_masses.shape)
+        
+        # Campionamento Attriti
+        new_frictions = self.original_frictions * self.np_random.uniform(low, high, size=self.original_frictions.shape)
+        
+        return {"masses": new_masses, "frictions": new_frictions}
+
+    def set_parameters(self, params):
+        # Spacchettiamo il dizionario e applichiamo entrambi
+        self.model.body_mass[1:] = params["masses"]
+        self.model.geom_friction[:] = params["frictions"]
+
+    def get_parameters(self):
+        return {
+            "masses": np.array(self.model.body_mass[1:]),
+            "frictions": np.array(self.model.geom_friction)
+        }
+    
+class Hopper_Friction_Gaussian(Hopper_OnlyFriction_uniform):
+    def sample_parameters(self):
+        mean = self.original_frictions
+        std = 0.1 * mean  # Deviazione standard al 10% della media
+        
+        # Calcolo dei bound per la troncata basati su self.distribuzione
+        a = ((1.0 - self.distribuzione) * mean - mean) / (std + 1e-6)
+        b = ((1.0 + self.distribuzione) * mean - mean) / (std + 1e-6)
+        
+        sampled_frictions = truncnorm.rvs(a, b, loc=mean, scale=std, random_state=self.np_random)
+        return sampled_frictions
+    
+class Hopper_MassAndFriction_Gaussian(Hopper_MassAndFriction_Uniform):
+    def sample_parameters(self):
+        # 1. Campionamento Masse
+        mean_m = self.original_masses
+        std_m = 0.1 * mean_m
+        a_m = ((1.0 - self.distribuzione) * mean_m - mean_m) / (std_m + 1e-6)
+        b_m = ((1.0 + self.distribuzione) * mean_m - mean_m) / (std_m + 1e-6)
+        new_masses = truncnorm.rvs(a_m, b_m, loc=mean_m, scale=std_m, random_state=self.np_random)
+
+        # 2. Campionamento Attriti
+        mean_f = self.original_frictions
+        std_f = 0.1 * mean_f
+        a_f = ((1.0 - self.distribuzione) * mean_f - mean_f) / (std_f + 1e-6)
+        b_f = ((1.0 + self.distribuzione) * mean_f - mean_f) / (std_f + 1e-6)
+        new_frictions = truncnorm.rvs(a_f, b_f, loc=mean_f, scale=std_f, random_state=self.np_random)
+
+        return {"masses": new_masses, "frictions": new_frictions}
+
+
+# ──────────────────────────────────────────────
+# AMBIENTI TARGET FISSI (per evaluation)
+# ──────────────────────────────────────────────
+
+class Hopper_Target_Mass(Hopper_Mass_UniformDistribution):
+    """Target con sole masse scalate di un fattore fisso"""
+    def __init__(self, scale: float = 1.0, **kwargs):
+        kwargs["domain"] = "target"
+        super().__init__(**kwargs)
+        self.scale = scale
+        self.model.body_mass[1:] = self.original_masses * self.scale
+
+    def reset_model(self):
+        noise_low = -self._reset_noise_scale
+        noise_high = self._reset_noise_scale
+        qpos = self.init_qpos + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nq)
+        qvel = self.init_qvel + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nv)
+        self.set_state(qpos, qvel)
+        # Masse fisse ad ogni reset
+        self.model.body_mass[1:] = self.original_masses * self.scale
+        return self._get_obs()
+
+
+class Hopper_Target_Friction(Hopper_Mass_UniformDistribution):
+    """Target con soli attriti scalati di un fattore fisso"""
+    def __init__(self, scale: float = 1.0, **kwargs):
+        kwargs["domain"] = "target"
+        super().__init__(**kwargs)
+        self.scale = scale
+        self.original_frictions = np.copy(self.model.geom_friction)
+        self.model.geom_friction[:] = self.original_frictions * self.scale
+
+    def reset_model(self):
+        noise_low = -self._reset_noise_scale
+        noise_high = self._reset_noise_scale
+        qpos = self.init_qpos + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nq)
+        qvel = self.init_qvel + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nv)
+        self.set_state(qpos, qvel)
+        # Attriti fissi ad ogni reset
+        self.model.geom_friction[:] = self.original_frictions * self.scale
+        return self._get_obs()
+
+
+class Hopper_Target_MassAndFriction(Hopper_Mass_UniformDistribution):
+    """Target con masse e attriti scalati di un fattore fisso"""
+    def __init__(self, scale: float = 1.0, **kwargs):
+        kwargs["domain"] = "target"
+        super().__init__(**kwargs)
+        self.scale = scale
+        self.original_frictions = np.copy(self.model.geom_friction)
+        self.model.body_mass[1:] = self.original_masses * self.scale
+        self.model.geom_friction[:] = self.original_frictions * self.scale
+
+    def reset_model(self):
+        noise_low = -self._reset_noise_scale
+        noise_high = self._reset_noise_scale
+        qpos = self.init_qpos + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nq)
+        qvel = self.init_qvel + self.np_random.uniform(low=noise_low, high=noise_high, size=self.model.nv)
+        self.set_state(qpos, qvel)
+        # Masse e attriti fissi ad ogni reset
+        self.model.body_mass[1:] = self.original_masses * self.scale
+        self.model.geom_friction[:] = self.original_frictions * self.scale
+        return self._get_obs()
+
+
+
+
 
 """
-    Registered environments
+    Registered environments for Hopper Domain Randomization
 """
+
+variations = [0.1, 0.2, 0.5, 0.8]
+max_steps = 500
+
+# 1. AMBIENTI STANDARD
 gym.register(
-        id="CustomHopper-v0",
-        entry_point="%s:Hopper_UniformDistribution" % __name__,
-        max_episode_steps=500,
+    id="CustomHopper-v0",
+    entry_point=f"{__name__}:Hopper_Mass_UniformDistribution",
+    max_episode_steps=max_steps,
+)
+gym.register(
+    id="CustomHopper-source-v0",
+    entry_point=f"{__name__}:Hopper_Mass_UniformDistribution",
+    max_episode_steps=max_steps,
+    kwargs={"domain": "source"}
+)
+gym.register(
+    id="CustomHopper-target-v0",
+    entry_point=f"{__name__}:Hopper_Mass_UniformDistribution",
+    max_episode_steps=max_steps,
+    kwargs={"domain": "target"}
 )
 
-gym.register(
-        id="CustomHopper-source-v0",
-        entry_point="%s:Hopper_UniformDistribution" % __name__,
-        max_episode_steps=500,
-        kwargs={"domain": "source"}
-)
+# 2. TUTTI I VARIANTI CON RANDOMIZZAZIONE
+registry = [
+    # (suffisso_id,        classe)
+    ("Mass-Uni",           "Hopper_Mass_UniformDistribution"),
+    ("Mass-Gauss",         "Hopper_Mass_GaussianTroncata"),
+    ("Fric-Uni",           "Hopper_OnlyFriction_uniform"),
+    ("Fric-Gauss",         "Hopper_Friction_Gaussian"),
+    ("MassFric-Uni",       "Hopper_MassAndFriction_Uniform"),
+    ("MassFric-Gauss",     "Hopper_MassAndFriction_Gaussian"),
+]
 
-gym.register(
-        id="CustomHopper-target-v0",
-        entry_point="%s:Hopper_UniformDistribution" % __name__,
-        max_episode_steps=500,
-        kwargs={"domain": "target"}
-)
+for suffix, cls in registry:
+    for dist in variations:
+        percent = int(dist * 100)
+        gym.register(
+            id=f"Hopper-{suffix}-{percent}-v0",
+            entry_point=f"{__name__}:{cls}",
+            max_episode_steps=max_steps,
+            kwargs={"domain": "source", "distribuzione": dist}
+        )
 
-# Caso Base: Randomizzazione leggera (10%)
-gym.register(
-    id="Hopper-Uniform-10-v0",
-    entry_point="%s:Hopper_UniformDistribution" % __name__,
-    max_episode_steps=500,
-    kwargs={"domain": "source", "distribuzione": 0.1}
-)
+# Registrazione dei 9 ambienti target
+target_configs = {
+    "Easy":   0.95,
+    "Medium": 1.25,
+    "Hard":   1.55,
+}
 
-# Caso Standard: Randomizzazione media (20%) - Il tuo default
-gym.register(
-    id="Hopper-Uniform-20-v0",
-    entry_point="%s:Hopper_UniformDistribution" % __name__,
-    max_episode_steps=500,
-    kwargs={"domain": "source", "distribuzione": 0.2}
-)
-
-# Caso Stress Test: Randomizzazione forte (50%)
-# Qui la massa può variare da 0.5x a 1.5x rispetto all'originale
-gym.register(
-    id="Hopper-Uniform-50-v0",
-    entry_point="%s:Hopper_UniformDistribution" % __name__,
-    max_episode_steps=500,
-    kwargs={"domain": "source", "distribuzione": 0.5}
-)
-
-# Caso Extreme: Randomizzazione estrema (80%)
-# Molto utile per testare la Generalizzazione Zero-Shot
-gym.register(
-    id="Hopper-Uniform-80-v0",
-    entry_point="%s:Hopper_UniformDistribution" % __name__,
-    max_episode_steps=500,
-    kwargs={"domain": "source", "distribuzione": 0.8}
-)
-
-gym.register(
-    id="Hopper-Gauss-10-v0",
-    entry_point="%s:Hopper_GaussianTroncata" % __name__,
-    max_episode_steps=500,
-    kwargs={"domain": "source", "distribuzione": 0.1}
-)
-
-gym.register(
-    id="Hopper-Gauss-20-v0",
-    entry_point="%s:Hopper_GaussianTroncata" % __name__,
-    max_episode_steps=500,
-    kwargs={"domain": "source", "distribuzione": 0.2}
-)
+for difficulty, scale in target_configs.items():
+    gym.register(
+        id=f"Hopper-Target-Mass-{difficulty}-v0",
+        entry_point=f"{__name__}:Hopper_Target_Mass",
+        max_episode_steps=max_steps,
+        kwargs={"scale": scale}
+    )
+    gym.register(
+        id=f"Hopper-Target-Fric-{difficulty}-v0",
+        entry_point=f"{__name__}:Hopper_Target_Friction",
+        max_episode_steps=max_steps,
+        kwargs={"scale": scale}
+    )
+    gym.register(
+        id=f"Hopper-Target-Both-{difficulty}-v0",
+        entry_point=f"{__name__}:Hopper_Target_MassAndFriction",
+        max_episode_steps=max_steps,
+        kwargs={"scale": scale}
+    )
 
 
-gym.register(
-    id="Hopper-Gauss-50-v0",
-    entry_point="%s:Hopper_GaussianTroncata" % __name__,
-    max_episode_steps=500,
-    kwargs={"domain": "source", "distribuzione": 0.5}
-)
+#Gli ambienti registrati sono quindi:
 
-
-gym.register(
-    id="Hopper-Gauss-80-v0",
-    entry_point="%s:Hopper_GaussianTroncata" % __name__,
-    max_episode_steps=500,
-    kwargs={"domain": "source", "distribuzione": 0.8}
-)
+#Hopper-Target-Mass-Easy-v0    (masse × 0.95)
+#Hopper-Target-Mass-Medium-v0  (masse × 1.25)
+#Hopper-Target-Mass-Hard-v0    (masse × 1.55)
+#Hopper-Target-Fric-Easy-v0    (attriti × 0.95)
+#Hopper-Target-Fric-Medium-v0  (attriti × 1.25)
+#Hopper-Target-Fric-Hard-v0    (attriti × 1.55)
+#Hopper-Target-Both-Easy-v0    (masse+attriti × 0.95)
+#Hopper-Target-Both-Medium-v0  (masse+attriti × 1.25)
+#Hopper-Target-Both-Hard-v0    (masse+attriti × 1.55)
