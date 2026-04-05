@@ -404,3 +404,5 @@ Action std : [0.53563166 0.57694995 0.77417487]
 Action min : [-1. -1. -1.]
 Action max : [1. 1. 1.]
 
+### Otimizzazione vs default
+![ottimizzato vs default](result\ottimizzato vs default.png)
